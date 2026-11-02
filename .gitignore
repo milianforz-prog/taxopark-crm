@@ -1,0 +1,12 @@
+# Секреты — никогда не коммитить
+.env
+parks.json
+
+# Состояние и логи бота
+bot_state.json
+*.log
+
+# Python / Node
+__pycache__/
+node_modules/
+dist/
