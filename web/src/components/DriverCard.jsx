@@ -3,7 +3,7 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Too
 import { ago, CRM_STATUS, CURRENT_STATUS, fmtDate, fmtDay, fullName, money, NOTE_KIND, ONLINE, shortMoney, WORK_STATUS } from "../lib/format";
 import { useData } from "../lib/store";
 import { supabase } from "../lib/supabase";
-import { Badge, Drawer, Empty, Money, Spinner } from "./ui";
+import { Badge, Drawer, Empty, Money, Plate, Spinner } from "./ui";
 
 export default function DriverCard() {
   const { openDriver, setOpenDriver, driverById, reload } = useData();
@@ -58,7 +58,7 @@ function CardBody({ d, reload }) {
 
       <div className="dc-facts">
         <Fact label="Телефон" value={d.phone ? <a href={`tel:${d.phone}`}>{d.phone}</a> : "—"} />
-        <Fact label="Автомобиль" value={[d.car, d.car_number].filter(Boolean).join(" · ") || "—"} />
+        <Fact label="Автомобиль" value={d.car || d.car_number ? <span className="car-cell"><Plate number={d.car_number} />{d.car}</span> : "—"} />
         <Fact label={online ? "На линии с" : "Последний раз на линии"}
               value={d.status_updated_at ? `${fmtDate(d.status_updated_at)} (${ago(d.status_updated_at)} назад)` : "—"} />
         <Fact label="Последняя операция" value={fmtDate(d.last_transaction_at)} />

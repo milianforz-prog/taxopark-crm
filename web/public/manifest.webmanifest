@@ -1,0 +1,17 @@
+{
+  "name": "Таксопарк CRM",
+  "short_name": "Таксопарк",
+  "description": "Должники, водители и финансы таксопарка",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1B1E24",
+  "theme_color": "#1B1E24",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

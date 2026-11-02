@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Badge, Card, Empty, Kpi, Money } from "../components/ui";
+import { Badge, Card, Checker, Empty, Kpi, Money, Plate } from "../components/ui";
 import { ago, finKey, fmtDay, fullName, money, ONLINE, shortMoney, WORK_STATUS } from "../lib/format";
 import { useData } from "../lib/store";
 import { supabase } from "../lib/supabase";
@@ -62,16 +62,43 @@ export default function Summary({ go }) {
 
   return (
     <div className="page">
+      <section className="meter">
+        <div className="meter-top">
+          <Checker cols={4} />
+          <span className="meter-title">Долг водителей</span>
+          <span className="meter-live">{shownParks.length === 1 ? shownParks[0].name : `${shownParks.length} парк(ов)`}</span>
+        </div>
+        <div className="meter-value">
+          {totals.minus < 0 && <span className="meter-sign">−</span>}
+          {new Intl.NumberFormat("ru-RU").format(Math.round(Math.abs(totals.minus)))}
+          <span className="meter-cur">₽</span>
+        </div>
+        <div className="meter-cells">
+          <button className="meter-cell" onClick={() => go("debtors")}>
+            <span>Должники от 5 000 ₽</span>
+            <b>{debtors.length}</b>
+            <em>{money(debtSum)}</em>
+          </button>
+          <button className="meter-cell" onClick={() => go("drivers")}>
+            <span>На линии</span>
+            <b className="tone-live">{totals.online}</b>
+            <em>работают {totals.working} из {totals.drivers}</em>
+          </button>
+          <div className="meter-cell">
+            <span>В плюсе у водителей</span>
+            <b>{shortMoney(totals.plus)}</b>
+            <em>{totals.minusCount} водителей в минусе</em>
+          </div>
+        </div>
+      </section>
+
       <div className="kpis">
-        <Kpi label="На линии сейчас" value={totals.online} sub={`работают ${totals.working} из ${totals.drivers}`} tone="ok" />
-        <Kpi label="Сумма в плюсе" value={money(totals.plus)} sub="к выплате водителям" />
-        <Kpi label="Сумма в минусе" value={money(totals.minus)} sub={`${totals.minusCount} водителей`} tone="bad" />
-        <Kpi label="Должники от 5 000 ₽" value={debtors.length} sub={money(debtSum)} tone="bad" onClick={() => go("debtors")} />
-        {fin && <Kpi label="Пополнения за 7 дней" value={money(fin.topup)} tone="ok" onClick={() => go("finance")} />}
-        {fin && <Kpi label="Выводы за 7 дней" value={money(Math.abs(fin.withdraw))} onClick={() => go("finance")} />}
-        {fin && <Kpi label="Доход парка за 7 дней" value={money(Math.abs(fin.partner_fees) + Math.abs(fin.partner_other))}
-                     sub="комиссия + списания" tone="info" onClick={() => go("finance")} />}
-        <Kpi label="Просрочены обещания" value={overdue.length} tone={overdue.length ? "warn" : undefined} onClick={() => go("debtors")} />
+        {fin && <Kpi label="Пополнения · 7 дней" value={money(fin.topup)} tone="ok" onClick={() => go("finance")} />}
+        {fin && <Kpi label="Выводы · 7 дней" value={money(Math.abs(fin.withdraw))} onClick={() => go("finance")} />}
+        {fin && <Kpi label="Доход парка · 7 дней" value={money(Math.abs(fin.partner_fees) + Math.abs(fin.partner_other))}
+                     sub="комиссия и списания" tone="info" onClick={() => go("finance")} />}
+        <Kpi label="Просроченные обещания" value={overdue.length} sub="обещали оплатить и не оплатили"
+             tone={overdue.length ? "warn" : undefined} onClick={() => go("debtors")} />
       </div>
 
       <div className="grid-2">
@@ -98,9 +125,10 @@ export default function Summary({ go }) {
                 <li key={d.id} onClick={() => setOpenDriver(d.id)}>
                   <div>
                     <b>{fullName(d)}</b>
-                    <div className="muted small">
-                      {d.park_name} · {ONLINE.has(d.current_status) ? "на линии" : `офлайн ${ago(d.status_updated_at)}`}
-                      {d.work_status !== "working" && <> · {WORK_STATUS[d.work_status]?.label}</>}
+                    <div className="muted small row-meta">
+                      <Plate number={d.car_number} />
+                      {ONLINE.has(d.current_status) ? "на линии" : `офлайн ${ago(d.status_updated_at)}`}
+                      {d.work_status !== "working" && <span className="tone-warn">{WORK_STATUS[d.work_status]?.label}</span>}
                     </div>
                   </div>
                   <Money value={d.balance} />

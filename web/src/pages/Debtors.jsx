@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Badge, Chips, Delta, Empty, Money, Pager, SortHeader, sortRows } from "../components/ui";
+import { Badge, Chips, Delta, Empty, Money, Pager, Plate, SortHeader, sortRows } from "../components/ui";
 import { ago, CRM_STATUS, csvDownload, fmtDate, fmtDay, fullName, money, ONLINE, WORK_STATUS } from "../lib/format";
 import { localGet, localSet, useData } from "../lib/store";
 import { today } from "./Summary";
@@ -88,7 +88,7 @@ export default function Debtors() {
 
       {rows.length === 0 ? <Empty>Должников по этим условиям нет</Empty> : (
         <div className="table-wrap card">
-          <table className="table hover">
+          <table className="table hover responsive">
             <thead>
               <tr>
                 <SortHeader label="Водитель" field="name" sort={sort} setSort={setSort} />
@@ -106,22 +106,23 @@ export default function Debtors() {
                 const overdue = d.promise_date && d.promise_date < today();
                 return (
                   <tr key={d.id} onClick={() => setOpenDriver(d.id)}>
-                    <td>
+                    <td className="c-main">
                       <b>{fullName(d)}</b>
-                      <div className="muted small">
-                        {d.phone || "нет телефона"}{d.car_number ? ` · ${d.car_number}` : ""}
-                        {d.work_status !== "working" && <> · <span className="tone-warn">{WORK_STATUS[d.work_status]?.label}</span></>}
+                      <div className="muted small row-meta">
+                        <span>{d.phone || "нет телефона"}</span>
+                        <Plate number={d.car_number} />
+                        {d.work_status !== "working" && <span className="tone-warn">{WORK_STATUS[d.work_status]?.label}</span>}
                       </div>
                     </td>
-                    <td className="small">{d.park_name}</td>
-                    <td className="num"><Money value={d.balance} /></td>
-                    <td className="num small">
+                    <td className="small c-sub">{d.park_name}</td>
+                    <td className="num c-bal"><Money value={d.balance} /></td>
+                    <td className="num small c-meta" data-label="За неделю">
                       <Delta value={d.balance_week_ago == null ? null : d.balance - d.balance_week_ago} />
                     </td>
-                    <td className="small">
+                    <td className="small c-meta" data-label="На линии">
                       {ONLINE.has(d.current_status) ? <Badge tone="ok">на линии</Badge> : <span className="muted">{ago(d.status_updated_at) || "—"}</span>}
                     </td>
-                    <td>
+                    <td className="c-meta">
                       <Badge tone={st.tone}>{st.label}</Badge>
                       {d.promise_date && (
                         <div className={`small ${overdue ? "tone-bad" : "muted"}`}>
@@ -130,7 +131,7 @@ export default function Debtors() {
                         </div>
                       )}
                     </td>
-                    <td className="small note-cell">
+                    <td className="small note-cell c-note">
                       {d.last_note ? <>{d.last_note}<div className="muted">{fmtDate(d.last_note_at)}</div></> : <span className="muted">—</span>}
                     </td>
                   </tr>

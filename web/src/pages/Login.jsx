@@ -1,4 +1,6 @@
 import { useState } from "react";
+import InstallHint from "../components/InstallHint";
+import { Checker } from "../components/ui";
 import { supabase } from "../lib/supabase";
 
 export default function Login() {
@@ -34,8 +36,8 @@ export default function Login() {
 
   return (
     <div className="login">
+      <Brand />
       <form className="login-card" onSubmit={submit}>
-        <div className="logo">🚕 Таксопарк CRM</div>
         <div className="tabs">
           <button type="button" className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>Вход</button>
           <button type="button" className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")}>Регистрация</button>
@@ -57,6 +59,17 @@ export default function Login() {
         {msg && <div className="small">{msg}</div>}
         {mode === "signup" && <p className="muted small">После регистрации владелец парка должен одобрить доступ.</p>}
       </form>
+      <InstallHint />
+    </div>
+  );
+}
+
+export function Brand() {
+  return (
+    <div className="brand">
+      <Checker cols={10} />
+      <div className="brand-name">Таксопарк</div>
+      <div className="brand-sub">должники · водители · финансы</div>
     </div>
   );
 }
@@ -72,8 +85,9 @@ export function SetPassword({ onDone }) {
   };
   return (
     <div className="login">
+      <Brand />
       <form className="login-card" onSubmit={submit}>
-        <div className="logo">🔑 Новый пароль</div>
+        <h2 className="login-title">Новый пароль</h2>
         <input className="input" type="password" minLength={6} required placeholder="Новый пароль"
                value={password} onChange={(e) => setPassword(e.target.value)} />
         <button className="btn primary">Сохранить</button>

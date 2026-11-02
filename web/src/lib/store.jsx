@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { fetchAll, runSync, supabase } from "./supabase";
 
-const DataContext = createContext(null);
+export const DataContext = createContext(null);
 const REFRESH_MS = 2 * 60 * 1000;
 
 export function DataProvider({ me, children }) {

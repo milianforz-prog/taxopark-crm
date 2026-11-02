@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Badge, Empty, Money, Pager, SortHeader, sortRows } from "../components/ui";
+import { Badge, Empty, Money, Pager, Plate, SortHeader, sortRows } from "../components/ui";
 import { ago, csvDownload, CURRENT_STATUS, fmtDate, fullName, ONLINE, WORK_STATUS } from "../lib/format";
 import { useData } from "../lib/store";
 import { today } from "./Summary";
@@ -74,7 +74,7 @@ export default function Drivers() {
 
       {rows.length === 0 ? <Empty>Никого не нашлось</Empty> : (
         <div className="table-wrap card">
-          <table className="table hover">
+          <table className="table hover responsive">
             <thead>
               <tr>
                 <SortHeader label="Водитель" field="name" sort={sort} setSort={setSort} />
@@ -91,15 +91,15 @@ export default function Drivers() {
                 const ws = WORK_STATUS[d.work_status];
                 return (
                   <tr key={d.id} onClick={() => setOpenDriver(d.id)}>
-                    <td><b>{fullName(d)}</b><div className="muted small">{d.phone || "нет телефона"}</div></td>
-                    <td className="small">{d.park_name}</td>
-                    <td className="num"><Money value={d.balance} /></td>
-                    <td>
+                    <td className="c-main"><b>{fullName(d)}</b><div className="muted small">{d.phone || "нет телефона"}</div></td>
+                    <td className="small c-sub">{d.park_name}</td>
+                    <td className="num c-bal"><Money value={d.balance} /></td>
+                    <td className="c-meta">
                       <Badge tone={cs.tone}>{cs.label}</Badge>{" "}
                       {ws && d.work_status !== "working" && <Badge tone={ws.tone}>{ws.label}</Badge>}
                     </td>
-                    <td className="small">{ONLINE.has(d.current_status) ? "сейчас" : d.status_updated_at ? `${ago(d.status_updated_at)} назад` : "—"}</td>
-                    <td className="small">{d.car || "—"}<div className="muted">{d.car_number}</div></td>
+                    <td className="small c-meta" data-label="На линии">{ONLINE.has(d.current_status) ? "сейчас" : d.status_updated_at ? `${ago(d.status_updated_at)} назад` : "—"}</td>
+                    <td className="small c-meta car-cell"><Plate number={d.car_number} /><span className="muted">{d.car || "—"}</span></td>
                   </tr>
                 );
               })}

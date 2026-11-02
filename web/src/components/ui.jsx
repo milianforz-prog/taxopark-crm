@@ -1,6 +1,30 @@
 import { useEffect } from "react";
 import { money } from "../lib/format";
 
+// Госномер в виде настоящего номерного знака: «О847РУ797» → [О 847 РУ | 797 RUS]
+const PLATE_RE = /^([А-ЯЁA-Z])\s?(\d{3})\s?([А-ЯЁA-Z]{2})\s?(\d{2,3})$/i;
+export function Plate({ number }) {
+  if (!number) return null;
+  const m = number.replace(/\s+/g, "").toUpperCase().match(PLATE_RE);
+  if (!m) return <span className="plate plate-raw">{number}</span>;
+  return (
+    <span className="plate" title={number}>
+      <span className="plate-main">{m[1]}<b>{m[2]}</b>{m[3]}</span>
+      <span className="plate-region">{m[4]}<i>RUS</i></span>
+    </span>
+  );
+}
+
+// Полоса шашечек такси
+export function Checker({ cols = 8, className = "" }) {
+  return (
+    <span className={`checker ${className}`} aria-hidden="true">
+      {/* сетка заполняется по колонкам: i → колонка i/2, ряд i%2 */}
+      {Array.from({ length: cols * 2 }, (_, i) => <i key={i} className={(Math.floor(i / 2) + (i % 2)) % 2 ? "" : "on"} />)}
+    </span>
+  );
+}
+
 export function Badge({ tone = "muted", children, title }) {
   return <span className={`badge badge-${tone}`} title={title}>{children}</span>;
 }
