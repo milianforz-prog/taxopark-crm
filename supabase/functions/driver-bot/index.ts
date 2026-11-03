@@ -20,7 +20,13 @@ type Driver = {
 type Shift = { id: string; price: number; status: string; started_at: string; min_end_at: string };
 type Btn = { text: string; callback_data: string };
 
-let settings: { token: string; webhook_secret: string } | null = null;
+type Settings = { token: string; webhook_secret: string; admin_phones: string | null };
+let settings: Settings | null = null;
+
+const last10 = (s: string | null | undefined) => String(s || "").replace(/\D/g, "").slice(-10);
+const isAdminPhone = (phone: string) =>
+  last10(phone).length === 10 &&
+  (settings!.admin_phones || "").split(",").some((p) => last10(p) === last10(phone));
 
 // ---------- Telegram ----------
 
@@ -53,7 +59,12 @@ const btn = (text: string, data: string): Btn => ({ text, callback_data: data })
 
 const BTN_CABINET = "👤 Личный кабинет";
 const BTN_LOGOUT = "🚪 Выйти";
+const BTN_SWITCH = "🔁 Другой водитель";
 const MAIN_KB = { keyboard: [[{ text: BTN_CABINET }], [{ text: BTN_LOGOUT }]], resize_keyboard: true, is_persistent: true };
+const ADMIN_KB = {
+  keyboard: [[{ text: BTN_CABINET }, { text: BTN_SWITCH }], [{ text: BTN_LOGOUT }]],
+  resize_keyboard: true, is_persistent: true,
+};
 const PHONE_KB = {
   keyboard: [[{ text: "📱 Отправить номер телефона", request_contact: true }]],
   resize_keyboard: true, one_time_keyboard: true,
@@ -116,12 +127,23 @@ async function refresh(park: Park, d: Driver): Promise<Driver> {
   }
 }
 
-async function linkedDriver(tgId: number): Promise<Driver | null> {
-  const { data: link } = await sb.from("driver_telegram").select("driver_id, phone").eq("telegram_id", tgId).maybeSingle();
-  if (!link) return null;
+type Link = { driver_id: string | null; phone: string; is_admin: boolean };
+
+async function getLink(tgId: number): Promise<Link | null> {
+  const { data } = await sb.from("driver_telegram").select("driver_id, phone, is_admin").eq("telegram_id", tgId).maybeSingle();
+  if (data?.is_admin && !isAdminPhone(data.phone)) { // номер убрали из администраторов
+    await sb.from("driver_telegram").delete().eq("telegram_id", tgId);
+    return null;
+  }
+  return data;
+}
+
+async function linkedDriver(tgId: number, link?: Link | null): Promise<Driver | null> {
+  if (link === undefined) link = await getLink(tgId);
+  if (!link?.driver_id) return null;
   const { data: d } = await sb.from("drivers").select("*").eq("id", link.driver_id).maybeSingle();
-  const digits = (s: string | null) => (s || "").replace(/\D/g, "").slice(-10);
-  if (!d || d.work_status === "fired" || digits(d.phone) !== digits(link.phone)) {
+  if (link.is_admin) return d ? { ...d, balance: Number(d.balance) } : null;
+  if (!d || d.work_status === "fired" || last10(d.phone) !== last10(link.phone)) {
     await sb.from("driver_telegram").delete().eq("telegram_id", tgId);
     return null;
   }
@@ -140,7 +162,7 @@ async function shiftPrice(driverId: string): Promise<number | null> {
 
 // ---------- экраны ----------
 
-async function cabinet(park: Park, d: Driver): Promise<[string, Btn[][]]> {
+async function cabinet(park: Park, d: Driver, admin = false): Promise<[string, Btn[][]]> {
   const [shift, price] = await Promise.all([activeShift(d.id), shiftPrice(d.id)]);
   const lines = [
     `👤 <b>${esc(fullName(d))}</b>`,
@@ -166,7 +188,25 @@ async function cabinet(park: Park, d: Driver): Promise<[string, Btn[][]]> {
     if (price) kb.push([btn(`🛒 Купить смену · ${money(price)}`, "B")]);
   }
   kb.push([btn("🔄 Обновить", "R")]);
+  if (admin) lines.unshift("🛠 <i>Режим администратора — вы видите кабинет водителя</i>", "");
   return [lines.join("\n"), kb];
+}
+
+// ---------- администратор ----------
+
+async function adminSearch(chat: number, query: string) {
+  const q = query.replace(/[^\p{L}\d ]/gu, "").trim();
+  const digits = q.replace(/\D/g, "");
+  if (q.length < 2) return send(chat, "🔍 Напишите фамилию или последние цифры телефона водителя:");
+  let req = sb.from("drivers").select("id, last_name, first_name, balance, work_status").limit(20);
+  req = digits.length >= 4 ? req.ilike("phone", `%${digits}%`) : req.ilike("last_name", `%${q.split(" ")[0]}%`);
+  const { data } = await req.order("last_name");
+  if (!data?.length) return send(chat, `🔍 По запросу «${esc(q)}» никого не нашёл. Попробуйте фамилию или цифры телефона.`);
+  await send(chat, `🔍 Найдено: ${data.length}. Выберите водителя:`, {
+    inline_keyboard: data.map((d: any) => [btn(
+      `${[d.last_name, d.first_name].filter(Boolean).join(" ")} · ${money(Number(d.balance))}${d.work_status === "fired" ? " ⛔" : ""}`,
+      `A|${d.id}`)]),
+  });
 }
 
 // ---------- обработка ----------
@@ -188,6 +228,14 @@ async function onMessage(msg: any) {
       return;
     }
     const phone = String(msg.contact.phone_number || "");
+    if (isAdminPhone(phone)) {
+      await sb.from("driver_telegram").upsert({ telegram_id: tgId, driver_id: null, phone, is_admin: true,
+        linked_at: new Date().toISOString() });
+      console.log("вход администратора:", tgId);
+      await send(chat, "🛠 <b>Режим администратора</b>\n\nВы можете открыть кабинет любого водителя и увидеть его так, " +
+        "как видит водитель. Покупка смены в этом режиме — настоящее списание с баланса водителя.", ADMIN_KB);
+      return send(chat, "🔍 Напишите фамилию или последние цифры телефона водителя:");
+    }
     const { data } = await sb.rpc("driver_bot_find", { p_phone: phone });
     const found = ((data || []) as Driver[]).sort((a, b) =>
       Number(b.work_status === "working") - Number(a.work_status === "working"));
@@ -198,7 +246,7 @@ async function onMessage(msg: any) {
       return;
     }
     const d = { ...found[0], balance: Number(found[0].balance) };
-    await sb.from("driver_telegram").upsert({ telegram_id: tgId, driver_id: d.id, phone, linked_at: new Date().toISOString() });
+    await sb.from("driver_telegram").upsert({ telegram_id: tgId, driver_id: d.id, phone, is_admin: false, linked_at: new Date().toISOString() });
     console.log("вход:", tgId, d.id);
     await send(chat, `✅ Добро пожаловать, <b>${esc(d.first_name || fullName(d))}</b>!`, MAIN_KB);
     const park = (await parks())[d.park_id];
@@ -207,17 +255,28 @@ async function onMessage(msg: any) {
     return;
   }
 
-  const d = await linkedDriver(tgId);
-  if (!d) return askPhone(chat);
-  if (msg.text === BTN_LOGOUT) {
+  const link = await getLink(tgId);
+  if (link && msg.text === BTN_LOGOUT) {
     await sb.from("driver_telegram").delete().eq("telegram_id", tgId);
     await send(chat, "👋 Вы вышли из кабинета.", { remove_keyboard: true });
     return askPhone(chat);
   }
+  if (link?.is_admin) {
+    const known = ["/start", BTN_CABINET];
+    if (msg.text === BTN_SWITCH || (msg.text && !known.includes(msg.text)) || !link.driver_id) {
+      if (msg.text === "/start") await send(chat, "🛠 Режим администратора", ADMIN_KB);
+      return msg.text && !known.includes(msg.text) && msg.text !== BTN_SWITCH
+        ? adminSearch(chat, msg.text)
+        : send(chat, "🔍 Напишите фамилию или последние цифры телефона водителя:");
+    }
+  }
+  const d = await linkedDriver(tgId, link);
+  if (!d) return askPhone(chat);
+  const admin = !!link?.is_admin;
   const park = (await parks())[d.park_id];
   if (!park) return send(chat, "Парк временно недоступен. Обратитесь к диспетчеру.");
-  if (msg.text === "/start") await send(chat, "Главное меню 👇", MAIN_KB);
-  const [text, kb] = await cabinet(park, await refresh(park, d));
+  if (msg.text === "/start") await send(chat, "Главное меню 👇", link?.is_admin ? ADMIN_KB : MAIN_KB);
+  const [text, kb] = await cabinet(park, await refresh(park, d), admin);
   await send(chat, text, { inline_keyboard: kb });
 }
 
@@ -225,18 +284,24 @@ async function onCallback(cq: any) {
   const chat = cq.message.chat.id as number;
   const msgId = cq.message.message_id as number;
   const data = String(cq.data || "");
-  let d = await linkedDriver(cq.from.id);
+  const link = await getLink(cq.from.id);
+  if (data.startsWith("A|") && link?.is_admin) {
+    await sb.from("driver_telegram").update({ driver_id: data.slice(2) }).eq("telegram_id", cq.from.id);
+    link.driver_id = data.slice(2);
+  }
+  let d = await linkedDriver(cq.from.id, link);
   if (!d) {
     await answer(cq.id, "Войдите заново");
     return askPhone(chat);
   }
+  const admin = !!link?.is_admin;
   const park = (await parks())[d.park_id];
   if (!park) return answer(cq.id, "Парк недоступен");
 
-  if (data === "R") {
+  if (data === "R" || data.startsWith("A|")) {
     await answer(cq.id, "🔄 Обновляю…");
     d = await refresh(park, d);
-    const [text, kb] = await cabinet(park, d);
+    const [text, kb] = await cabinet(park, d, admin);
     return edit(chat, msgId, text, kb);
   }
 
@@ -253,7 +318,7 @@ async function onCallback(cq: any) {
       [[btn("✅ Купить", "Y"), btn("❌ Отмена", "R")]]);
   }
 
-  if (data === "Y") return buy(cq, park, d);
+  if (data === "Y") return buy(cq, park, d, admin);
 
   if (data === "X") { // отключение — сначала проверяем 6 дней
     const shift = await activeShift(d.id);
@@ -266,7 +331,7 @@ async function onCallback(cq: any) {
       return edit(chat, msgId, "⛔ <b>Отключить смену?</b>\n\nДеньги за смену не возвращаются.",
         [[btn("✅ Отключить", "XY"), btn("❌ Отмена", "R")]]);
     }
-    const [text, kb] = await cabinet(park, d);
+    const [text, kb] = await cabinet(park, d, admin);
     return edit(chat, msgId, text, kb);
   }
 
@@ -280,21 +345,21 @@ async function onCallback(cq: any) {
       console.log("смена отключена:", d.id);
     }
     await answer(cq.id, "Смена отключена");
-    const [text, kb] = await cabinet(park, d);
+    const [text, kb] = await cabinet(park, d, admin);
     return edit(chat, msgId, "✅ <b>Смена отключена.</b>\n\n" + text, kb);
   }
 
   await answer(cq.id);
 }
 
-async function buy(cq: any, park: Park, d: Driver) {
+async function buy(cq: any, park: Park, d: Driver, admin = false) {
   const chat = cq.message.chat.id as number;
   const msgId = cq.message.message_id as number;
   const price = await shiftPrice(d.id);
   if (!price) return answer(cq.id, "Стоимость смены не назначена", true);
   if (await activeShift(d.id)) {
     await answer(cq.id, "Смена уже подключена");
-    const [text, kb] = await cabinet(park, d);
+    const [text, kb] = await cabinet(park, d, admin);
     return edit(chat, msgId, text, kb);
   }
   d = await refresh(park, d);
@@ -329,7 +394,7 @@ async function buy(cq: any, park: Park, d: Driver) {
   console.log("смена куплена:", d.id, price);
   d = { ...d, balance: d.balance - price };
   await sb.from("drivers").update({ balance: d.balance }).eq("id", d.id);
-  const [text, kb] = await cabinet(park, d);
+  const [text, kb] = await cabinet(park, d, admin);
   return edit(chat, msgId, "✅ <b>Смена куплена!</b>\n\n" + text, kb);
 }
 
@@ -337,7 +402,7 @@ Deno.serve(async (req) => {
   if (!settings) {
     const { data, error } = await sb.rpc("driver_bot_settings").single();
     if (error || !data) return new Response("not configured", { status: 500 });
-    settings = data as { token: string; webhook_secret: string };
+    settings = data as Settings;
   }
   if (req.headers.get("x-telegram-bot-api-secret-token") !== settings.webhook_secret) {
     return new Response("forbidden", { status: 403 });
