@@ -66,6 +66,8 @@ function CardBody({ d, reload }) {
         <Fact label="Данные обновлены" value={`${ago(d.updated_at)} назад`} />
       </div>
 
+      <ShiftBlock d={d} />
+
       <nav className="tabs">
         <button className={tab === "crm" ? "active" : ""} onClick={() => setTab("crm")}>Работа с долгом</button>
         <button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>Баланс</button>
@@ -203,6 +205,72 @@ function CrmTab({ d, notes, onChanged }) {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+// Смена: цена (своя у каждого водителя) и текущая смена, купленная в боте водителей
+function ShiftBlock({ d }) {
+  const [info, setInfo] = useState(null);
+  const [price, setPrice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const load = useCallback(async () => {
+    const { data, error } = await supabase.from("driver_shift_info").select("*").eq("driver_id", d.id).maybeSingle();
+    if (error) return setErr(error.message);
+    setInfo(data || {});
+    setPrice(data?.shift_price != null ? String(Number(data.shift_price)) : "");
+  }, [d.id]);
+  useEffect(() => { load(); }, [load]);
+
+  if (!info) return null;
+  const saved = info.shift_price != null ? String(Number(info.shift_price)) : "";
+
+  const save = async () => {
+    setBusy(true);
+    setErr("");
+    const { error } = price === "" || Number(price) <= 0
+      ? await supabase.from("shift_prices").delete().eq("driver_id", d.id)
+      : await supabase.from("shift_prices").upsert({ driver_id: d.id, price: Number(price) });
+    if (error) setErr(error.message);
+    else {
+      await supabase.from("driver_notes").insert({ driver_id: d.id, kind: "comment",
+        text: price && Number(price) > 0 ? `Цена смены: ${money(price)}` : "Цена смены снята" });
+      await load();
+    }
+    setBusy(false);
+  };
+
+  const endShift = async () => {
+    if (!confirm("Завершить смену водителя досрочно? Деньги не возвращаются автоматически.")) return;
+    setBusy(true);
+    const { error } = await supabase.rpc("staff_end_shift", { p_shift: info.shift_id });
+    if (error) setErr(error.message);
+    await load();
+    setBusy(false);
+  };
+
+  return (
+    <div className="crm" style={{ marginBottom: 16 }}>
+      <div className="crm-form">
+        <label>Цена смены, ₽
+          <input className="input" type="number" min="0" placeholder="не назначена" value={price}
+                 onChange={(e) => setPrice(e.target.value)} />
+        </label>
+        <button className="btn primary" disabled={busy || price === saved} onClick={save}>Сохранить цену</button>
+        <div className="fact">
+          <div className="muted small">Смена {info.in_bot ? "· 🤖 в боте" : "· не входил в бот"}</div>
+          <div>
+            {info.shift_id
+              ? <>🕐 активна с {fmtDate(info.shift_started_at)}, оплачено {money(info.shift_paid)}<br />
+                  <span className="muted small">водитель может отключить с {fmtDate(info.shift_min_end_at)}</span></>
+              : "не подключена"}
+          </div>
+        </div>
+        {info.shift_id && <button className="btn" disabled={busy} onClick={endShift}>Завершить смену</button>}
+      </div>
+      {err && <div className="error">{err}</div>}
     </div>
   );
 }

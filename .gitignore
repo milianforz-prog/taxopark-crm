@@ -4,6 +4,7 @@ parks.json
 
 # Состояние и логи бота
 bot_state.json
+*.tmp
 *.log
 
 # Python / Node
