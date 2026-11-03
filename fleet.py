@@ -4,12 +4,15 @@ import html
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-FLEET_URL = "https://fleet-api.taxi.yandex.net/v1/parks/driver-profiles/list"
+FLEET_BASE = "https://fleet-api.taxi.yandex.net"
+FLEET_URL = FLEET_BASE + "/v1/parks/driver-profiles/list"
 PAGE_SIZE_API = 1000
 LIST_PAGE = 10  # водителей на одной странице списка
 CACHE_TTL = 120  # секунд
@@ -66,14 +69,20 @@ def allowed_chats(env):
 # ---------- HTTP ----------
 
 def post_json(url, payload, headers=None, timeout=60):
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, method="POST")
-    req.add_header("Content-Type", "application/json")
+    return request_json("POST", url, payload, headers, timeout)
+
+
+def request_json(method, url, payload=None, headers=None, timeout=60):
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
     for key, value in (headers or {}).items():
         req.add_header(key, value)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            body = resp.read().decode("utf-8")
+            return json.loads(body) if body.strip() else {}
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"HTTP {e.code}: {body}") from None
@@ -136,6 +145,62 @@ def _parse_driver(item):
         "car": " ".join(x for x in (car.get("brand"), car.get("model")) if x),
         "car_number": car.get("number", ""),
     }
+
+
+def _park_headers(park):
+    return {"X-Client-ID": park["client_id"], "X-API-Key": park["api_key"],
+            "X-Park-ID": park["park_id"], "Accept-Language": "ru"}
+
+
+_rules_cache = {}  # park_id -> (время, правила)
+
+
+def work_rules(park, force=False):
+    """Условия работы парка: [{"id", "name", "is_enabled"}]."""
+    cached = _rules_cache.get(park["park_id"])
+    if cached and not force and time.time() - cached[0] < 600:
+        return cached[1]
+    url = FLEET_BASE + "/v1/parks/driver-work-rules?" + urllib.parse.urlencode({"park_id": park["park_id"]})
+    rules = request_json("GET", url, headers=_park_headers(park)).get("rules", [])
+    _rules_cache[park["park_id"]] = (time.time(), rules)
+    return rules
+
+
+def driver_profile_v2(park, driver_id):
+    """Полный профиль водителя (в нём account.work_rule_id)."""
+    url = FLEET_BASE + "/v2/parks/contractors/driver-profile?" + \
+        urllib.parse.urlencode({"contractor_profile_id": driver_id})
+    return request_json("GET", url, headers=_park_headers(park))
+
+
+def set_work_rule(park, driver_id, rule_id):
+    """Меняет условие работы водителя: берём текущий профиль и отправляем его обратно с новым work_rule_id."""
+    profile = driver_profile_v2(park, driver_id)
+    profile.setdefault("account", {})["work_rule_id"] = rule_id
+    url = FLEET_BASE + "/v2/parks/contractors/driver-profile?" + \
+        urllib.parse.urlencode({"contractor_profile_id": driver_id})
+    headers = {**_park_headers(park), "X-Idempotency-Token": uuid.uuid4().hex}
+    request_json("PUT", url, profile, headers)
+    _cache.pop(park["park_id"], None)
+
+
+def phone_key(phone):
+    """Последние 10 цифр номера — так +7…, 8… и 7… совпадают."""
+    digits = "".join(ch for ch in str(phone or "") if ch.isdigit())
+    return digits[-10:] if len(digits) >= 10 else ""
+
+
+def find_by_phone(parks, phone, force=False):
+    """Все не уволенные водители с этим номером во всех парках: [(индекс парка, водитель)]."""
+    key = phone_key(phone)
+    if not key:
+        return []
+    found = []
+    for idx, park in enumerate(parks):
+        for d in fetch_park(park, force):
+            if d["work_status"] != "fired" and phone_key(d["phone"]) == key:
+                found.append((idx, d))
+    return found
 
 
 def selected_parks(parks, sel):
