@@ -4,7 +4,6 @@ parks.json
 
 # Состояние и логи бота
 bot_state.json
-driver_bot_state.json
 *.tmp
 *.log
 
