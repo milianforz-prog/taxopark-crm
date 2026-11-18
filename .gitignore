@@ -7,6 +7,9 @@ bot_state.json
 *.tmp
 *.log
 
+# Заполненные заявления — в них чужие реквизиты
+zayavlenie-out/
+
 # Python / Node
 __pycache__/
 node_modules/
